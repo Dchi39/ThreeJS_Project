@@ -1,0 +1,131 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ================= BASIC SETUP =================
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x222230);
+
+const camera = new THREE.PerspectiveCamera(
+  45,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
+camera.position.set(0, 120, 180);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// ================= LIGHTING =================
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(100, 200, 100);
+scene.add(dirLight);
+
+// ================= ALUMINIUM BLOCK =================
+const blockWidth = 120;
+const blockDepth = 120;
+const blockHeight = 10;
+
+const blockGeometry = new THREE.PlaneGeometry(
+  blockWidth,
+  blockDepth,
+  40,
+  40
+);
+
+const blockMaterial = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  side: THREE.DoubleSide,
+  metalness: 0.7,
+  roughness: 0.3
+});
+
+const block = new THREE.Mesh(blockGeometry, blockMaterial);
+block.rotation.x = -Math.PI / 2;
+scene.add(block);
+
+// ================= INITIAL VERTEX COLORS =================
+const colors = [];
+for (let i = 0; i < blockGeometry.attributes.position.count; i++) {
+  colors.push(0, 0, 1); // blue (cold)
+}
+blockGeometry.setAttribute(
+  'color',
+  new THREE.Float32BufferAttribute(colors, 3)
+);
+
+// ================= COIL POSITIONS (Ø 12 cm) =================
+const coils = [
+  { x: -30, z: -30, power: 180 },
+  { x:  30, z: -30, power: 180 },
+  { x: -30, z:  30, power: 140 },
+  { x:  30, z:  30, power: 120 }
+];
+
+// ================= HEAT MAP FUNCTION =================
+function updateHeatMap() {
+  const pos = blockGeometry.attributes.position;
+  const col = blockGeometry.attributes.color;
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getY(i); // plane rotated
+
+    let heat = 0;
+
+    coils.forEach(c => {
+      const dx = x - c.x;
+      const dz = z - c.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      heat += c.power * Math.exp(-d * d / 800);
+    });
+
+    // Normalize heat
+    const t = THREE.MathUtils.clamp(heat / 300, 0, 1);
+
+    // Heat color gradient
+    const r = t;
+    const g = 1.0 - Math.abs(t - 0.5) * 2.0;
+    const b = 1.0 - t;
+
+    col.setXYZ(i, r, g, b);
+  }
+
+  col.needsUpdate = true;
+}
+
+// ================= DATA INPUT (SIMULATION / REAL) =================
+
+// Example: replace this with WebSocket data later
+function simulateESP32Data() {
+  coils[0].power = 150 + Math.sin(Date.now() * 0.001) * 50;
+  coils[1].power = 160 + Math.cos(Date.now() * 0.001) * 40;
+  coils[2].power = 120;
+  coils[3].power = 100;
+}
+
+// ================= RENDER LOOP =================
+function animate() {
+  requestAnimationFrame(animate);
+
+  simulateESP32Data();  // REMOVE when real data is connected
+  updateHeatMap();
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// ================= RESIZE =================
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
